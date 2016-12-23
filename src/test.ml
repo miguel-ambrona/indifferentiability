@@ -1,9 +1,11 @@
 (* Test *)
 
 open Abbrevs
+open Util
 open Expressions
 open Feistel
 open Attacker
+open Simulator
 
 let test_feistel_attack () =
 
@@ -55,5 +57,7 @@ let test () =
       Check("v4", Eq, "x4");
     ]
   in
-  let _, output = inline_adversary ~real:true commands in  
-  print_inline_output output
+  let _ = simulated_world_equations commands in
+  let knowledge = simulator_knowledge commands in
+  L.iter knowledge ~f:(fun (expr, list) -> F.printf "%a -> [%a]\n" pp_expr expr (pp_list ", " pp_expr) list);
+  ()

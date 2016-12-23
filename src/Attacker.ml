@@ -106,6 +106,7 @@ let inline_adversary ~real commands =
           aux (Map.add expressions ~key:name ~data:(simplify_expr new_expression) ) equations rest_cmds
        | Check (var1, eq, var2) ->
           let expr = simplify_expr (XOR(Map.find_exn expressions var1, Map.find_exn expressions var2)) in
+          F.printf "  %a\n" pp_expr expr;
           let satisfied =
             begin match eq, expr with
             | Eq, Zero   -> true
