@@ -2,6 +2,7 @@
 
 open Core_kernel.Std
 open Abbrevs
+open Util
 
 (* ** Expressions *)
 
@@ -10,15 +11,17 @@ type expression =
   | XOR  of expression * expression
   | Leaf of string
   | Zero
+  | Rand of int * (expression list)
 
 
 (* ** Pretty printing *)
 
 let rec string_of_expr = function
-  | F(expr, i)  -> "F" ^ (string_of_int (i+1)) ^ "(" ^ (string_of_expr expr) ^ ")"
+  | F(expr, i)  -> "F" ^ (string_of_int i) ^ "(" ^ (string_of_expr expr) ^ ")"
   | XOR(e1, e2) -> (string_of_expr e1) ^ " + " ^  (string_of_expr e2)
   | Leaf(s)     -> s
   | Zero        -> "0"
+  | Rand (i, l) -> "R" ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
 
 let pp_expr _fmt expr =
   F.printf "%s" (string_of_expr expr)
@@ -28,6 +31,12 @@ let pp_expr _fmt expr =
 
 let rec compare_expr e1 e2 =
   match e1, e2 with
+  | Rand (i1,l1), Rand (i2,l2) ->
+     let c = Int.compare i1 i2 in
+     if c = 0 then compare_lists ~compare:compare_expr l1 l2
+     else c
+  | Rand(_,_), _ -> -1
+  | _, Rand(_,_) -> +1
   | F(e1',i1), F(e2',i2) ->
      let c = Int.compare i1 i2 in
      if c = 0 then compare_expr e1' e2'
@@ -66,11 +75,12 @@ let rec simplify_expr expr =
   | [] -> Zero
   | a :: [] ->
      begin match a with
-     | F(e1,i) -> F(simplify_expr e1, i)
+     | F(e1,i)    -> F(simplify_expr e1, i)
+     | Rand (i,l) -> Rand(i, L.map l ~f:simplify_expr )
      | _ -> a
      end
   | _ ->
-     let xor_list = L.sort ~cmp:compare_expr (L.map xor_list ~f:simplify_expr) in
+     let xor_list = L.sort ~cmp:compare_expr (L.map xor_list ~f:simplify_expr ) in
      let rec aux simplified_list current k = function
        | [] ->
           if k%2 = 0 then simplified_list
