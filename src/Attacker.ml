@@ -4,7 +4,7 @@ open Core_kernel.Std
 open Abbrevs
 open Util
 open Expressions
-       
+
 (* ** Attack commands *)
 
 type eq = Eq | Ineq
@@ -12,13 +12,13 @@ type eq = Eq | Ineq
 let eq_to_string = function
   | Eq   -> "="
   | Ineq -> "<>"
-                 
+
 type block_cipher = {
     n_in   : int;
     n_out  : int;
     cipher : expression list -> expression list                 (* inputs * outputs *)
   }
-                      
+
 type command =
   | Sample_cmd of string
   | F_cmd      of string * (string * int)                       (*    output * (input * id)     *)
@@ -28,7 +28,7 @@ type command =
 
 let already_exists name = Some ("Variable " ^ name ^ " already exists")
 let not_defined var     = Some ("Variable " ^ var ^ " is not defined")
-                                                                 
+
 let verify_commands commands =
   let rec aux variables = function
     | [] -> None  (* If everything goes right *)
@@ -37,12 +37,12 @@ let verify_commands commands =
        | Sample_cmd name ->
           if L.mem variables name then already_exists name
           else aux (name :: variables) rest_cmds
-                   
+
        | F_cmd (name, (var, _)) ->
           if not (L.mem variables var) then not_defined var
           else if L.mem variables name then already_exists name
           else aux (name :: variables) rest_cmds
-                   
+
        | R_cmd (names, cipher, vars) ->
           begin match L.find vars ~f:(fun v -> not (L.mem variables v)) with
           | Some var -> not_defined var
@@ -55,7 +55,7 @@ let verify_commands commands =
                 else aux (names @ variables) rest_cmds
              end
           end
-            
+
        | XOR_cmd (name, vars) ->
           begin match L.find vars ~f:(fun v -> not (L.mem variables v)) with
           | Some var -> not_defined var
@@ -70,7 +70,7 @@ let verify_commands commands =
        end
   in
   aux [] commands
-     
+
 let assert_commands commands =
   match verify_commands commands with
   | None -> ()
@@ -95,7 +95,7 @@ let inline_adversary ~real commands =
                    ~f:(fun emap (name,var) -> Map.add emap ~key:name ~data:var )
           in
           aux expressions' equations rest_cmds
-            
+
        | XOR_cmd (name, vars) ->
           let new_variables = L.map vars ~f:(fun v -> Map.find_exn expressions v) in
           let new_expression =
@@ -121,10 +121,8 @@ let inline_adversary ~real commands =
   assert_commands commands;
   aux String.Map.empty [] commands
 
-let rec print_inline_output = function  
+let rec print_inline_output = function
   | [] -> ()
   | (b, var1, eq, var2) :: rest ->
      F.printf "%b -> %s %s %s\n" b var1 (eq_to_string eq) var2;
      print_inline_output rest
-
-                   

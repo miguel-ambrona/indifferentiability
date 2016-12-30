@@ -13,11 +13,11 @@ type simulator_term =
   | Var   of int * (int list) list  (* variable id  *  variable dependent terms *)
 
 let pp_inner_list _ list = F.printf "[%a]" (pp_list "," pp_int) list
-                              
+
 let pp_simulator_term _ = function
   | Const (i, idxs) -> F.printf "Const(%d,%a)" i (pp_list "," pp_inner_list) idxs
   | Var   (i, idxs) -> F.printf "Var(%d,%a)" i (pp_list "," pp_inner_list) idxs
-                     
+
 let expressions_to_simulator_terms expressions =
   let rec aux id_map id_counter converted = function
     | [] -> id_map, id_counter, converted
@@ -73,10 +73,85 @@ let expressions_to_simulator_terms expressions =
   in
   aux Int.Map.empty 0 [] expressions
 
+let xor_gaussian_elimination (matrix : int list list) (vector : expression list) =
+  (* This function solves the system matrix*x = vector,
+     where matrix and vector have coefficients in {0,1}
+     summation is defined as xor and multiplication as
+     0*v = \vec{0} and 1*v = v for every vector v
+   *)
+  let sum_rows row1 row2 v1 v2 =
+    L.map2_exn row1 row2 ~f:(fun a1 a2 -> if a1 = a2 then 0 else 1), simplify_expr (XOR(v1, v2))
+  in
+  let m = L.length matrix in
+  let n = L.length (L.hd_exn matrix) in
+  let search_for_non_zero non_used_rows col matrix =
+    let rec aux = function
+      | [] -> None
+      | row :: rest_rows ->
+         let el = L.nth_exn (L.nth_exn matrix row) col in
+         if el = 0 then aux rest_rows
+         else Some row
+    in
+    aux non_used_rows
+  in
+  let reduce_by_pivot row col matrix vector =
+    let relevant_row = L.nth_exn matrix row in
+    let relevant_v = L.nth_exn vector row in
+    L.map (range 0 m)
+      ~f:(fun k ->
+        if k = row then relevant_row, relevant_v
+        else
+          let this_row = L.nth_exn matrix k in
+          let this_v = L.nth_exn vector k in
+          if L.nth_exn this_row col = 0 then this_row, this_v
+          else sum_rows this_row relevant_row this_v relevant_v
+      )
+    |> L.unzip
+  in
+  let rec go reduced vector col non_used_rows =
+    if col >= n then reduced, vector
+    else
+      (* We search for a non-zero in column col and a non-used row *)
+      match search_for_non_zero non_used_rows col reduced with
+      | None -> go reduced vector (col+1) non_used_rows
+      | Some row ->
+         let reduced, vector = reduce_by_pivot row col reduced vector in
+         go reduced vector (col+1) (L.filter non_used_rows ~f:(fun r -> r <> row))
+  in
+  go matrix vector 0 (range 0 m)
+
+let has_solution matrix vector =
+  let reduced, vector = xor_gaussian_elimination matrix vector in
+  let rec aux f_matrix f_vector = function
+    | [], [] -> Some (f_matrix, f_vector)
+    | row :: rest_rows, v :: rest_vector ->
+       if not (L.exists row ~f:(fun a -> a = 1)) then
+         if not (equal_expr v Zero) then None
+         else aux f_matrix f_vector (rest_rows, rest_vector)
+       else aux (f_matrix @ [row]) (f_vector @ [v]) (rest_rows, rest_vector)
+    | _ -> assert false
+  in
+  aux [] [] (reduced, vector)
+
 let can_be_generated expression known_terms =
-  (* Fixme: This function should check if expression can be generated as a xor of the terms in known_terms *)
-  L.mem known_terms ~equal:equal_expr expression
-      
+  let expression = simplify_expr expression in
+  let known_terms = L.map known_terms ~f:simplify_expr in
+  let xor_atoms =
+    (expr_to_xor_list expression) @ (L.concat (L.map known_terms ~f:expr_to_xor_list ))
+    |> L.dedup ~compare:compare_expr
+  in
+  let matrix, vector =
+    L.map xor_atoms
+      ~f:(fun a ->
+        let row = L.map known_terms ~f:(fun t -> if L.mem ~equal:equal_expr (expr_to_xor_list t) a then 1 else 0) in
+        row, (if L.mem ~equal:equal_expr (expr_to_xor_list expression) a then Leaf "1" else Zero)
+      )
+    |> L.unzip
+  in
+  match has_solution matrix vector with
+  | None -> false
+  | Some _ -> true
+
 let simulator_knowledge commands =
   let rec aux expressions known_terms knowledge = function
     | [] -> knowledge
@@ -107,7 +182,7 @@ let simulator_knowledge commands =
                    ~f:(fun emap (name,var) -> Map.add emap ~key:name ~data:var )
           in
           aux expressions' known_terms knowledge rest_cmds
-            
+
        | XOR_cmd (name, vars) ->
           let new_variables = L.map vars ~f:(fun v -> Map.find_exn expressions v) in
           let new_expression =
@@ -116,13 +191,13 @@ let simulator_knowledge commands =
                    ~f:(fun expr v -> XOR(expr, v))
           in
           aux (Map.add expressions ~key:name ~data:(simplify_expr new_expression) ) known_terms knowledge rest_cmds
-              
+
        | Check (_) -> aux expressions known_terms knowledge rest_cmds
        end
   in
   assert_commands commands;
   aux String.Map.empty [] [] commands
-  
+
 let simulated_world_equations commands =
   let _, equations   = inline_adversary ~real:true commands in
   let expressions, _ = inline_adversary ~real:false commands in
@@ -140,5 +215,3 @@ let simulated_world_equations commands =
   L.iter (Map.to_alist id_map) ~f:(fun (i,(e,_)) -> F.printf "%d -> %a\n" i pp_expr e);
   F.printf "\n[%a]\n" (pp_list ", " pp_simulator_term) (L.hd_exn exprs);
   ()
-
-

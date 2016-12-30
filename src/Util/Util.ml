@@ -10,7 +10,7 @@ let range i j =
   aux [] i
 
 let pp_int _ i = F.printf "%d" i
-      
+
 let string_of_list sep string_of_a list =
   let rec aux output = function
     | []        -> output
@@ -18,12 +18,15 @@ let string_of_list sep string_of_a list =
     | a :: rest -> aux (output ^ (string_of_a a) ^ sep) rest
   in
   aux "" list
-       
+
 let rec pp_list sep pp_elt f l =
   match l with
   | [] -> ()
   | [e] -> pp_elt f e
   | e::l -> F.fprintf f "%a%(%)%a" pp_elt e sep (pp_list sep pp_elt) l
+
+let pp_matrix pp_elt f m =
+  L.iter m ~f:(F.fprintf f "[%a]\n" (pp_list ", " pp_elt))
 
 let rec compare_lists ~compare list1 list2 =
   let list1 = L.sort ~cmp:compare list1 in

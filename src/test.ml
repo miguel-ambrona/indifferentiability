@@ -34,14 +34,14 @@ let test_feistel_attack () =
   F.printf "x1 + x1' + x1'' + x1''' = %a\n" pp_expr xor_x1;
   F.printf "x5 + x5' + x5'' + x5''' = %a\n\n" pp_expr xor_x5;
   ()
-    
+
 let test () =
   let feistel_cipher =
     { n_in = 2; n_out = 2;
       cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 4 in [l; r]);
     }
   in
-  
+
   let commands =
     [
       Sample_cmd ("x1");
@@ -60,4 +60,13 @@ let test () =
   let _ = simulated_world_equations commands in
   let knowledge = simulator_knowledge commands in
   L.iter knowledge ~f:(fun (expr, list) -> F.printf "%a -> [%a]\n" pp_expr expr (pp_list ", " pp_expr) list);
+
+  let matrix = [[1;1;0;1];[0;1;1;0];[1;1;1;0]] in
+  let vector = [Leaf "a"; Leaf "b"; Leaf "c"] in
+  F.printf "%a\n" (pp_matrix pp_int) matrix;
+  F.printf "[%a]\n" (pp_list "," pp_expr) vector;
+
+  let reduced, vector = xor_gaussian_elimination matrix vector in
+  F.printf "%a\n" (pp_matrix pp_int) reduced;
+  F.printf "[%a]\n" (pp_list "," pp_expr) vector;
   ()
