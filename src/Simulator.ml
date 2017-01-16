@@ -24,7 +24,7 @@ let expressions_to_simulator_terms expressions =
     | e :: rest ->
        let xor_list = expr_to_xor_list e in
        let (id_map, id_counter, new_expr) =
-         L.fold_left xor_list
+         L.fold_left xor_list 
              ~init:(id_map, id_counter, [])
              ~f:(fun (id_map, id_counter, terms) non_xor_term ->
                let f_search = fun (_,(e,_)) -> equal_expr e non_xor_term in
@@ -42,7 +42,7 @@ let expressions_to_simulator_terms expressions =
                      let id_map = Map.add id_map ~key:id_counter ~data:(non_xor_term, [idxs]) in
                      (id_map, id_counter+1, terms @ [Var(id_counter, [idxs])])
                   end
-               | Leaf(_) ->
+               | Leaf(_) | VAR(_)->
                   begin match L.find (Map.to_alist id_map) ~f:f_search with
                   | Some (i,(_,idxs)) -> (id_map, id_counter, terms @ [Const(i,idxs)])
                   | None ->
@@ -108,20 +108,20 @@ let xor_gaussian_elimination (matrix : int list list) (vector : expression list)
       )
     |> L.unzip
   in
-  let rec go reduced vector col non_used_rows =
-    if col >= n then reduced, vector
+  let rec go reduced col_pivots vector col non_used_rows =
+    if col >= n then reduced, col_pivots, vector
     else
       (* We search for a non-zero in column col and a non-used row *)
       match search_for_non_zero non_used_rows col reduced with
-      | None -> go reduced vector (col+1) non_used_rows
+      | None -> go reduced col_pivots vector (col+1) non_used_rows
       | Some row ->
          let reduced, vector = reduce_by_pivot row col reduced vector in
-         go reduced vector (col+1) (L.filter non_used_rows ~f:(fun r -> r <> row))
+         go reduced (col_pivots @ [col]) vector (col+1) (L.filter non_used_rows ~f:(fun r -> r <> row))
   in
-  go matrix vector 0 (range 0 m)
+  go matrix [] vector 0 (range 0 m)
 
 let has_solution matrix vector =
-  let reduced, vector = xor_gaussian_elimination matrix vector in
+  let reduced, _, vector = xor_gaussian_elimination matrix vector in
   let rec aux f_matrix f_vector = function
     | [], [] -> Some (f_matrix, f_vector)
     | row :: rest_rows, v :: rest_vector ->
@@ -133,25 +133,59 @@ let has_solution matrix vector =
   in
   aux [] [] (reduced, vector)
 
-let can_be_generated expression known_terms =
+let rec can_be_generated expression known_terms =
   let expression = simplify_expr expression in
   let known_terms = L.map known_terms ~f:simplify_expr in
   let xor_atoms =
     (expr_to_xor_list expression) @ (L.concat (L.map known_terms ~f:expr_to_xor_list ))
     |> L.dedup ~compare:compare_expr
   in
+
+  (* We are allowed also to call the random oracles *)
+
+  let random_oracle_terms =
+    L.filter (expr_to_xor_list expression) ~f:is_random_oracle_expr
+    |> L.filter ~f:(function | Rand(_,list) -> not (L.exists list ~f:(fun e -> not (can_be_generated e known_terms)))
+                             | _ -> assert false
+                   )
+  in
+  let all_known_terms = known_terms @ random_oracle_terms |> L.dedup ~compare:compare_expr in
   let matrix, vector =
     L.map xor_atoms
       ~f:(fun a ->
-        let row = L.map known_terms ~f:(fun t -> if L.mem ~equal:equal_expr (expr_to_xor_list t) a then 1 else 0) in
-        row, (if L.mem ~equal:equal_expr (expr_to_xor_list expression) a then Leaf "1" else Zero)
+        let row = L.map all_known_terms ~f:(fun t -> if L.mem ~equal:equal_expr (expr_to_xor_list t) a then 1 else 0) in
+        row, (if L.mem ~equal:equal_expr (expr_to_xor_list expression) a && not (is_zero_expr expression) then Leaf "1" else Zero)
       )
     |> L.unzip
   in
   match has_solution matrix vector with
   | None -> false
   | Some _ -> true
-
+                
+let rec is_zero_row row =
+  match row with
+  | [] -> true
+  | a :: rest -> if a = 0 then is_zero_row rest else false
+              
+let solve_system matrix vector =
+  let reduced, col_pivots, vector = xor_gaussian_elimination matrix vector in
+  if (L.exists (L.zip_exn reduced vector)
+         ~f:(fun (row,b) -> if (is_zero_row row) && (is_zero_expr b) then true else false)) then
+    None
+  else
+    Some (L.map (range 0 (L.length (L.hd_exn reduced)))
+              ~f:(fun i -> if not (L.mem col_pivots i) then VAR i
+                           else
+                             let row, v_el = L.find_exn (L.zip_exn reduced vector) ~f:(fun (row,_) -> (L.nth_exn row i) <> 0) in
+                             let free_in_this_row =
+                               L.filter (range 0 (L.length row))
+                                        ~f:(fun j -> let el = L.nth_exn row j in (el <> 0) && not(L.mem col_pivots j)) 
+                             in
+                             let var_terms = L.fold_left free_in_this_row ~init:Zero ~f:(fun vars v -> XOR(vars, VAR v)) in
+                             full_simplify (XOR(v_el, var_terms))
+                 )
+         )
+         
 let simulator_knowledge commands =
   let rec aux expressions known_terms knowledge = function
     | [] -> knowledge
@@ -198,10 +232,34 @@ let simulator_knowledge commands =
   assert_commands commands;
   aux String.Map.empty [] [] commands
 
+let get_all ~filter system =
+  let rec aux variables = function
+    | [] -> variables
+    | eq :: rest ->
+       let new_vars = L.fold_left eq ~init:variables ~f:(fun vars term -> if filter term then vars @ [term] else vars) in
+       aux new_vars rest
+  in
+  aux [] system
+
+let build_system expressions id_map =
+  let variables = get_all ~filter:(function | Var _ -> true | _ -> false) expressions in
+  L.map expressions ~f:(fun e ->
+          L.map variables ~f:(fun v -> if L.mem e v then 1 else 0),
+          L.fold_left e ~init:Zero ~f:(fun expr t ->
+                        match t with
+                        | Const(i,_) ->
+                           let this_expr, _ = Map.find_exn id_map i in
+                           XOR(expr, this_expr)
+                        | _ -> expr
+                      )
+          |> full_simplify
+        )
+  |> L.unzip
+              
 let simulated_world_equations commands =
   let _, equations   = inline_adversary ~real:true commands in
   let expressions, _ = inline_adversary ~real:false commands in
-  let equalities, _inequalities =
+  let equalities, inequalities =
     L.fold_left equations
             ~init:([],[])
             ~f:(fun (l1,l2) (b,var1,eq,var2) ->
@@ -211,7 +269,148 @@ let simulated_world_equations commands =
               | _ -> l1, (l2 @ [expr])
             )
   in
-  let id_map, _, exprs = expressions_to_simulator_terms equalities in
-  L.iter (Map.to_alist id_map) ~f:(fun (i,(e,_)) -> F.printf "%d -> %a\n" i pp_expr e);
-  F.printf "\n[%a]\n" (pp_list ", " pp_simulator_term) (L.hd_exn exprs);
-  ()
+  let id_map, _, all_exprs = expressions_to_simulator_terms (equalities @ inequalities) in
+  let exprs = L.slice all_exprs 0 (L.length equalities) in  (* Remove inequalities *)
+  
+  L.iter (Map.to_alist id_map) ~f:(fun (i,(e,_)) -> F.printf "a%d -> %a\n" i pp_expr e);
+  L.iter exprs ~f:(fun e -> F.printf "\nt[%a]\n" (pp_list ", " pp_simulator_term) e);
+  
+  let matrix, vector = build_system exprs id_map in
+  F.printf "%a\n" (pp_matrix pp_int) matrix;
+  F.printf "[%a]\n\n\n" (pp_list "," pp_expr) vector;
+
+  let solution = solve_system matrix vector in
+  let () = match solution with
+    | None -> F.printf "No solution\n"
+    | Some s ->
+       let all_vars = get_all ~filter:(function | Var _ -> true | _ -> false) all_exprs in
+       let max_i = L.fold_left (get_all ~filter:is_var_expr [s])
+                               ~init:0
+                               ~f:(fun max v -> begin match v with | VAR j -> if j > max then j else max | _ -> assert false end)
+       in
+       let extra_vars = L.map (range 0 ((L.length all_vars) - (L.length s))) ~f:(fun j -> VAR (j+max_i)) in
+       L.iter (L.zip_exn all_vars (s @ extra_vars))
+              ~f:(function
+                  | Var (j,_), e ->
+                     let v, _ = Map.find_exn id_map j in
+                     F.printf "%a = %a\n" pp_expr v pp_expr e
+                  | _ -> assert false
+                 )
+  in
+  match solution with
+  | None -> failwith "No solution"
+  | Some s ->
+     let all_vars = get_all ~filter:(function | Var _ -> true | _ -> false) all_exprs in
+     let max_i = L.fold_left (get_all ~filter:is_var_expr [s])
+                      ~init:0
+                      ~f:(fun max v -> begin match v with | VAR j -> if j > max then j else max | _ -> assert false end)
+     in
+     let extra_vars = L.map (range 0 ((L.length all_vars) - (L.length s))) ~f:(fun j -> VAR (j+max_i)) in
+     let max_i = max_i + ((L.length all_vars) - (L.length s)) in
+     let new_inequalities =
+       L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
+         ~init:inequalities
+         ~f:(fun updated_ineqs (v,e) ->
+           begin match v with
+           | Var (j,_) ->
+              let old, _ = Map.find_exn id_map j in
+              L.map updated_ineqs ~f:(substitute_expr ~old ~by:e )
+           | _ -> assert false
+           end
+         )
+       |> L.map ~f:full_simplify
+     in
+     let knowledge = simulator_knowledge commands in
+     let all_terms_in_precedences, precedences, _ = 
+       L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
+         ~init:([],[],max_i)
+         ~f:(fun (accum_knowledge, equations, var_index) (v,e) ->
+           begin match v with
+           | Var (j,_) -> (* Here is where we forbid things if they cannot be calculated as input *)
+              let this_var, _ = Map.find_exn id_map j in
+              begin match (L.find knowledge ~f:(fun (expr, _) -> equal_expr expr this_var)) with
+              | Some (_, this_knowledge) ->
+                   let random_oracle_terms =
+                     L.filter (expr_to_xor_list e) ~f:is_random_oracle_expr
+                     |> L.filter ~f:(function | Rand(_,list) -> not (L.exists list ~f:(fun e' -> not (can_be_generated e' this_knowledge)))
+                                              | _ -> assert false
+                                    )
+                   in
+                   let this_knowledge = (L.map this_knowledge ~f:expr_to_xor_list |> L.concat) @
+                                          random_oracle_terms @ [VAR var_index] in
+                   (accum_knowledge @ this_knowledge @ (L.filter (expr_to_xor_list e) ~f:(fun a-> not(is_var_expr a)))
+                    |> L.dedup ~compare:compare_expr,
+                    equations @ [(this_knowledge, e)],
+                    var_index + 1
+                   )
+              | None -> assert false
+              end
+           | _ -> assert false
+           end
+         )
+     in
+     
+     (* Build the system *)
+     let variables =
+       L.fold_left precedences
+          ~init:[]
+          ~f:(fun list (_,e) -> list @ (L.filter (expr_to_xor_list e) ~f:(function | VAR _ -> true | _ -> false)) |> L.dedup)
+     in
+     let vars_matrix, matrix, vector =
+       L.fold_left precedences
+          ~init:([],[],[])
+          ~f:(fun (vars_matrix, matrix, vector) (k,e) ->
+            let vars_matrix', matrix', vector' =
+              L.map ((L.map k ~f:expr_to_xor_list |> L.concat) @ ((expr_to_xor_list e) |> L.filter ~f:(fun a -> not(is_var_expr a)))
+                     |> L.dedup ~compare:compare_expr
+                     |> L.filter ~f:(fun a -> not (is_zero_expr a)))
+                ~f:(fun t ->
+                  L.map variables ~f:(fun v ->
+                          L.map all_terms_in_precedences ~f:(fun tt ->
+                                  if L.mem (expr_to_xor_list t) tt && L.mem (expr_to_xor_list e) v then 1
+                                  else 0)
+                        )
+                  |> L.concat,
+                  L.map k ~f:(fun tt -> if L.mem (expr_to_xor_list tt) t then 1 else 0),
+                  if L.mem (expr_to_xor_list e) t then Leaf "_1" else Zero
+                ) |> unzip3
+            in
+            if L.length matrix' = 0 then vars_matrix, matrix, vector
+            else
+              let matrix'' =
+                (L.map matrix ~f:(fun row -> row @ (list_repeat 0 (L.length (L.hd_exn matrix')))) ) @
+                  (if L.length matrix = 0 then matrix'
+                   else L.map matrix' ~f:(fun row -> (list_repeat 0 (L.length (L.hd_exn matrix))) @ row)
+                  )
+              in
+              (vars_matrix @ vars_matrix'), matrix'', (vector @ vector')
+          )
+     in
+
+     let matrix = L.zip_exn vars_matrix matrix |> L.map ~f:(fun (row,row') -> row @ row') in
+     
+     let reduced, col_pivots, vector' = xor_gaussian_elimination matrix vector in
+     F.printf "%a\n" (pp_matrix pp_int) matrix;
+     F.printf "%a\n" (pp_matrix pp_int) reduced;
+     F.printf "[%a]\n" (pp_list "," pp_int) col_pivots;
+     F.printf "[%a]\n\n\n" (pp_list "," pp_expr) vector';
+     
+     F.printf "\n Inequalities:\n";
+     L.iter inequalities ~f:(fun e -> F.printf "%a <> 0\n" pp_expr e);
+     F.printf "End\n";
+     F.printf "\n Inequalities:\n";
+     L.iter new_inequalities ~f:(fun e -> F.printf "%a <> 0\n" pp_expr e);
+     F.printf "End\n";
+
+     F.printf "\n Precedences:\n";     
+     L.iter precedences ~f:(fun (k,e) -> F.printf "%a -> [%a]\n" pp_expr e (pp_list ", " pp_expr) k);
+     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) all_terms_in_precedences;
+     F.printf "End\n\n\n\n";
+
+     
+     F.printf "\n Variables:\n";     
+     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) variables;
+     F.printf "End\n\n\n\n";
+     
+     ()
+       

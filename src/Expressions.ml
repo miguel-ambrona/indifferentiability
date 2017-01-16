@@ -12,6 +12,7 @@ type expression =
   | Leaf of string
   | Zero
   | Rand of int * (expression list)
+  | VAR  of int (* Variable, non-determined expression *)
 
 
 (* ** Pretty printing *)
@@ -22,6 +23,7 @@ let rec string_of_expr = function
   | Leaf(s)     -> s
   | Zero        -> "0"
   | Rand (i, l) -> "R" ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
+  | VAR (i)     -> "Var_" ^ (string_of_int i)
 
 let pp_expr _fmt expr =
   F.printf "%s" (string_of_expr expr)
@@ -52,10 +54,25 @@ let rec compare_expr e1 e2 =
   | Leaf(s1), Leaf(s2) -> S.compare s1 s2
   | Leaf(_), _ -> -1
   | _, Leaf(_) -> +1
+  | VAR i, VAR j -> Int.compare i j
+  | VAR(_), _  -> -1
+  | _ , VAR(_) -> +1
   | Zero, Zero -> 0
 
 let equal_expr e1 e2 = compare_expr e1 e2 = 0
+                                              
+let is_zero_expr = function
+  | Zero -> true
+  | _ -> false
 
+let is_random_oracle_expr = function
+  | Rand _ -> true
+  | _ -> false
+
+let is_var_expr = function
+  | VAR _ -> true
+  | _ -> false
+                                              
 let rec expr_to_xor_list = function
   | XOR (e1, e2) -> (expr_to_xor_list e1) @ (expr_to_xor_list e2)
   | e -> [e]
@@ -81,6 +98,8 @@ let rec simplify_expr expr =
      end
   | _ ->
      let xor_list = L.sort ~cmp:compare_expr (L.map xor_list ~f:simplify_expr ) in
+     let xor_without_zeros = L.filter xor_list ~f:(fun t -> not (is_zero_expr t)) in
+     let xor_list = if L.length xor_without_zeros = 0 then [Zero] else xor_without_zeros in
      let rec aux simplified_list current k = function
        | [] ->
           if k%2 = 0 then simplified_list
@@ -99,3 +118,12 @@ let full_simplify expr =
     else aux expr (simplify_expr expr)
   in
   aux expr (simplify_expr expr)
+
+let rec substitute_expr ~old ~by expression =
+  if equal_expr old expression then by
+  else
+    match expression with
+    | F(expr, i)  -> F(substitute_expr ~old ~by expr, i)
+    | XOR(e1, e2) -> XOR(substitute_expr ~old ~by e1, substitute_expr ~old ~by e2)
+    | Rand (i, l) -> Rand(i, L.map l ~f:(fun e -> substitute_expr ~old ~by e))
+    | _ as terminal -> terminal

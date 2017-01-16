@@ -9,6 +9,13 @@ let range i j =
   in
   aux [] i
 
+let list_repeat a n =
+  let rec aux output k =
+    if k >= n then output
+    else aux (a :: output) (k+1)
+  in
+  aux [] 0
+
 let pp_int _ i = F.printf "%d" i
 
 let string_of_list sep string_of_a list =
@@ -38,3 +45,10 @@ let rec compare_lists ~compare list1 list2 =
   | a :: rest1, b :: rest2 ->
      let c = compare a b in
      if c = 0 then compare_lists ~compare rest1 rest2 else c
+                                                             
+let unzip3 list =
+  let rec aux l1 l2 l3 = function
+    | [] -> l1,l2,l3
+    | (a,b,c) :: rest -> aux (l1 @ [a]) (l2 @ [b]) (l3 @ [c]) rest
+  in
+  aux [] [] [] list
