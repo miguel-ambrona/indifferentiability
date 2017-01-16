@@ -321,12 +321,12 @@ let simulated_world_equations commands =
        |> L.map ~f:full_simplify
      in
      let knowledge = simulator_knowledge commands in
-     let all_terms_in_precedences, precedences, _ = 
+     let all_terms_in_precedences, precedences, max_index = 
        L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
          ~init:([],[],max_i)
          ~f:(fun (accum_knowledge, equations, var_index) (v,e) ->
            begin match v with
-           | Var (j,_) -> (* Here is where we forbid things if they cannot be calculated as input *)
+           | Var (j,_) ->
               let this_var, _ = Map.find_exn id_map j in
               begin match (L.find knowledge ~f:(fun (expr, _) -> equal_expr expr this_var)) with
               | Some (_, this_knowledge) ->
@@ -336,7 +336,7 @@ let simulated_world_equations commands =
                                               | _ -> assert false
                                     )
                    in
-                   let this_knowledge = (L.map this_knowledge ~f:expr_to_xor_list |> L.concat) @
+                   let this_knowledge = (L.map this_knowledge ~f:expr_to_xor_list |> L.concat |> L.dedup ~compare:compare_expr) @
                                           random_oracle_terms @ [VAR var_index] in
                    (accum_knowledge @ this_knowledge @ (L.filter (expr_to_xor_list e) ~f:(fun a-> not(is_var_expr a)))
                     |> L.dedup ~compare:compare_expr,
@@ -407,10 +407,11 @@ let simulated_world_equations commands =
      F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) all_terms_in_precedences;
      F.printf "End\n\n\n\n";
 
-     
-     F.printf "\n Variables:\n";     
-     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) variables;
-     F.printf "End\n\n\n\n";
-     
+     let solution = solve_system matrix vector in
+     let () = match solution with
+       | None -> F.printf "No solution\n"
+       | Some s ->
+          F.printf "[%a]\n" (pp_list "\n" pp_expr) s
+     in
      ()
        
