@@ -52,3 +52,22 @@ let unzip3 list =
     | (a,b,c) :: rest -> aux (l1 @ [a]) (l2 @ [b]) (l3 @ [c]) rest
   in
   aux [] [] [] list
+
+let rec lazy_find ~f l =
+  (* This function takes a l, which is a list of lists of the shape:
+     [[a1,b1,...z1], ..., [an,bn,...wn]] and for every combination of elements:
+     (_1, _2, ..., _n) evaluates f. If f holds it immediatly returns the tuple,
+     if f never holds, it will return false *)
+  let rec aux = function
+    | [] -> None
+    | a :: [] -> if f a then Some a else None
+    | ([]) :: _ -> None
+    | (a :: rest_a) :: rest ->
+       begin match lazy_find ~f:(fun l -> f (a :: l)) rest with
+       | None -> aux (rest_a :: rest)
+       | Some s -> Some (a :: s)
+       end
+  in
+  aux l
+       
+  

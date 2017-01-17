@@ -5,6 +5,7 @@ open Abbrevs
 open Util
 open Expressions
 open Attacker
+open Z2Poly
 
 (* ** Simulator functions *)
 
@@ -321,7 +322,7 @@ let simulated_world_equations commands =
        |> L.map ~f:full_simplify
      in
      let knowledge = simulator_knowledge commands in
-     let all_terms_in_precedences, precedences, max_index = 
+     let all_terms_in_precedences, precedences, _ = 
        L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
          ~init:([],[],max_i)
          ~f:(fun (accum_knowledge, equations, var_index) (v,e) ->
@@ -372,7 +373,7 @@ let simulated_world_equations commands =
                         )
                   |> L.concat,
                   L.map k ~f:(fun tt -> if L.mem (expr_to_xor_list tt) t then 1 else 0),
-                  if L.mem (expr_to_xor_list e) t then Leaf "_1" else Zero
+                  if L.mem (expr_to_xor_list e) t then Leaf "1" else Zero
                 ) |> unzip3
             in
             if L.length matrix' = 0 then vars_matrix, matrix, vector
@@ -404,14 +405,114 @@ let simulated_world_equations commands =
 
      F.printf "\n Precedences:\n";     
      L.iter precedences ~f:(fun (k,e) -> F.printf "%a -> [%a]\n" pp_expr e (pp_list ", " pp_expr) k);
-     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) all_terms_in_precedences;
+     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) all_terms_in_precedences; (* Add terms from inequalities to all_terms_from_precedences *)
      F.printf "End\n\n\n\n";
 
      let solution = solve_system matrix vector in
-     let () = match solution with
-       | None -> F.printf "No solution\n"
-       | Some s ->
-          F.printf "[%a]\n" (pp_list "\n" pp_expr) s
-     in
-     ()
+     begin match solution with
+     | None -> F.printf "No solution\n"
+     | Some s ->
+        F.printf "[%a]\n" (pp_list "\n" pp_expr) s;
+        let free_vars_lincomb =
+          L.map (range 0 (L.length variables))
+                ~f:(fun i ->
+                  let n = L.length all_terms_in_precedences in
+                  let lincomb = L.zip_exn (L.slice s (i*n) ((i+1)*n)) all_terms_in_precedences in
+                  (L.nth_exn variables i, lincomb)
+                )
+        in
+        let conjunction =
+          L.map new_inequalities
+            ~f:(fun ineq ->
+              let terms_in_ineq = expr_to_xor_list ineq in
+              L.map all_terms_in_precedences
+                 ~f:(fun term ->
+                   let coeff = if L.mem terms_in_ineq term ~equal:equal_expr then Leaf "1" else Zero in
+                   L.fold_left free_vars_lincomb
+                      ~init:coeff
+                      ~f:(fun c (v, list) ->
+                        if L.mem terms_in_ineq v ~equal:equal_expr then
+                          let (c',_) = L.find_exn list ~f:(fun (_,e) -> equal_expr e term) in
+                          full_simplify (XOR(c,c'))
+                        else c
+                      )                     
+                 )
+            )
+        in
+   (*     let polynomial =
+          Z2P.(one +!
+                 (L.fold_left conjunction
+                   ~init:Z2P.one
+                   ~f:(fun p c ->
+                     F.printf "a: %a" (pp_list ",\n" pp_expr) c; F.print_flush();
+                     let p' =
+                       L.fold_left c
+                         ~init:Z2P.one
+                         ~f:(fun p'' c' ->
+                           F.printf "hola\n\n"; F.print_flush();
+                           let e = L.fold_left (expr_to_xor_list c')
+                                     ~init:Z2P.zero
+                                     ~f:(fun e t ->
+                                       match t with
+                                       | VAR i -> Z2P.((of_var i) +! e)
+                                       | Leaf s when s = "1" -> Z2P.(one +! e)
+                                       | _ -> assert false
+                                               )
+                           in                           F.printf "b: %a\n\n" pp_z2_poly e; F.print_flush();
+                           Z2P.(p'' *! (one +! e))
+                         )
+                     in
+                     Z2P.((one +! p') *! p)
+                   )
+                 )
+          )
+        in
+              F.printf "polynomial -> %a" pp_z2_poly polynomial;
+        let sol = find_zero polynomial in                       *)
+
+        let make_disj_poly e =
+          L.fold_left (expr_to_xor_list e)
+             ~init:Z2P.zero
+             ~f:(fun p t ->
+               match t with
+               | VAR i -> Z2P.((of_var i) +! p)
+               | Leaf s when s = "1" -> Z2P.(one +! p)
+               | _ -> assert false
+             )
+        in        
+        let f list =
+          let p = L.fold_left list ~init:Z2P.one ~f:(fun p e -> Z2P.(p *! (make_disj_poly e))) in
+          match find_zero Z2P.(p +! one) with
+          | None -> false
+          | Some _ -> true
+        in       
+
+        let solved = lazy_find ~f conjunction in
+        let () = begin match solved with
+                 | None -> F.printf "Nope\n"
+                 | Some s -> F.printf "Yeah!\n"
+                 end
+        in
+        
+        L.iter free_vars_lincomb ~f:(fun (v,lincomb) ->
+                 F.printf "%a ->" pp_expr v;
+                 L.iter lincomb ~f:(fun (coeff, term) -> F.printf "%a * %a, " pp_expr coeff pp_expr term);
+                 F.printf "\n\n\n\n";
+               );
+        
+        L.iter conjunction ~f:(fun list -> L.iter list ~f:(fun e -> F.printf " %a = 1 \\/" pp_expr e ); F.printf "\n/\\\n");
+        let p1 = [[1;2;3];[1]] in
+        let p2 = [[1;3];[2];[]] in
+        F.printf "Polys:\n%a\n" pp_z2_poly p1;
+        F.printf "%a\n" pp_z2_poly p2;
+        F.printf "%a\n" pp_z2_poly Z2P.(p1 +! p2);
+        F.printf "%a\nSolution: " pp_z2_poly Z2P.(p1 *! p2);
+        let p = p2 in
+        let sol = find_zero p in
+        let () = begin match sol with | None -> F.printf "No solution\n\n" | Some l -> F.printf "[%a]\n\n" (pp_list "," pp_int) l end in
+        F.printf "%a" pp_z2_poly p;
+
+        
+        ()
+     end
        

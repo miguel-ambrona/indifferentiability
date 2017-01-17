@@ -57,6 +57,7 @@ let test () =
       R_cmd(["v5";"v4"], feistel_cipher, ["x0";"x1"]);
       Check("v1", Eq, "v2");
       Check("v4", Eq, "x4");
+(*      Check("v4", Eq, "x3");*)
     ]
   in
   let _ = simulated_world_equations commands in
