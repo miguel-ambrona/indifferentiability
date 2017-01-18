@@ -65,7 +65,7 @@ let verify_commands commands =
 
        | Check (var1, _, var2) ->
           if not (L.mem variables var1) then not_defined var1
-          else if not (L.mem variables var2) then not_defined var2
+          else if not (L.mem variables var2) && var2 <> "0" then not_defined var2
           else aux variables rest_cmds
        end
   in
@@ -105,7 +105,7 @@ let inline_adversary ~real commands =
           in
           aux (Map.add expressions ~key:name ~data:(simplify_expr new_expression) ) equations rest_cmds
        | Check (var1, eq, var2) ->
-          let expr = simplify_expr (XOR(Map.find_exn expressions var1, Map.find_exn expressions var2)) in
+          let expr = full_simplify (XOR(Map.find_exn expressions var1, Map.find_exn expressions var2)) in
           F.printf "  %a\n" pp_expr expr;
           let satisfied =
             begin match eq, expr with
@@ -119,7 +119,8 @@ let inline_adversary ~real commands =
        end
   in
   assert_commands commands;
-  aux String.Map.empty [] commands
+  let map = Map.add (String.Map.empty) ~key:"0" ~data:Zero in
+  aux map [] commands
 
 let rec print_inline_output = function
   | [] -> ()
