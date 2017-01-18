@@ -84,7 +84,7 @@ let xor_gaussian_elimination (matrix : int list list) (vector : expression list)
     L.map2_exn row1 row2 ~f:(fun a1 a2 -> if a1 = a2 then 0 else 1), simplify_expr (XOR(v1, v2))
   in
   let m = L.length matrix in
-  let n = L.length (L.hd_exn matrix) in
+  let n = if m = 0 then 0 else L.length (L.hd_exn matrix) in
   let search_for_non_zero non_used_rows col matrix =
     let rec aux = function
       | [] -> None
@@ -169,12 +169,17 @@ let rec is_zero_row row =
   | a :: rest -> if a = 0 then is_zero_row rest else false
               
 let solve_system matrix vector =
+  F.printf "aaaaaaaaa %d x %d\n" (L.length matrix) (L.length vector); F.print_flush();
+  F.printf "%a\n" (pp_matrix pp_int) matrix;
+  F.printf "[%a]\n" (pp_list "," pp_expr) vector;
   let reduced, col_pivots, vector = xor_gaussian_elimination matrix vector in
   if (L.exists (L.zip_exn reduced vector)
          ~f:(fun (row,b) -> if (is_zero_row row) && (not (is_zero_expr b)) then true else false)) then
     None
   else
-    Some (L.map (range 0 (L.length (L.hd_exn reduced)))
+    if L.length reduced = 0 then Some []
+    else
+      Some (L.map (range 0 (L.length (L.hd_exn reduced)))
               ~f:(fun i -> if not (L.mem col_pivots i) then VAR i
                            else
                              let row, v_el = L.find_exn (L.zip_exn reduced vector) ~f:(fun (row,_) -> (L.nth_exn row i) <> 0) in
@@ -185,7 +190,7 @@ let solve_system matrix vector =
                              let var_terms = L.fold_left free_in_this_row ~init:Zero ~f:(fun vars v -> XOR(vars, VAR v)) in
                              full_simplify (XOR(v_el, var_terms))
                  )
-         )
+           )
          
 let simulator_knowledge commands =
   let rec aux expressions known_terms knowledge = function
@@ -276,7 +281,9 @@ let simulated_world_equations commands =
   
   L.iter (Map.to_alist id_map) ~f:(fun (i,(e,_)) -> F.printf "a%d -> %a\n" i pp_expr e);
   L.iter exprs ~f:(fun e -> F.printf "\nt[%a]\n" (pp_list ", " pp_simulator_term) e);
-  
+  F.printf "eqs: [%a]\n" (pp_list "," pp_expr) equalities;
+  F.printf "ineqs: [%a]\n" (pp_list "," pp_expr) inequalities;
+  F.printf "ineqs: [%a]\n" (pp_list "," pp_expr) (L.map inequalities ~f:full_simplify );
   let matrix, vector = build_system exprs id_map in
   let solution = solve_system matrix vector in
   let () = match solution with
@@ -481,7 +488,7 @@ let simulated_world_equations commands =
            match find_zero Z2P.(p +! one) with
            | None -> assert false
            | Some integers ->
-              F.printf "[%a]\n\n" (pp_list ", " pp_int) integers;
+              F.printf "a %d [%a]\n\n" (L.length conjunction) (pp_list ", " pp_int) integers;
               let free_vars =
                 L.map free_vars_lincomb ~f:(fun (v,lincomb) ->
                         let comb = L.fold_left lincomb
@@ -497,7 +504,7 @@ let simulated_world_equations commands =
                         (v, comb)
                       )
               in
-              F.printf "\n\n";
+              F.printf "%d \n\n" (L.length (all_vars));
               let simulator_terms =
                 L.map (L.rev (L.zip_exn all_vars (sol @ extra_vars)))
                       ~f:(function

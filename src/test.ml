@@ -38,11 +38,11 @@ let test_feistel_attack () =
 let test () =
   let feistel_cipher =
     { n_in = 2; n_out = 2;
-      cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 4 in [l; r]);
+      cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 5 in [l; r]);
     }
   in
 
-  let commands =
+ (* let commands =
     [
       Sample_cmd ("x1");
       Sample_cmd ("x2");
@@ -61,7 +61,49 @@ let test () =
       Check("v3", Eq, "0");
       Check("v2", Eq, "0");
     ]
+  in*)
+    
+  let commands =
+    [
+      Sample_cmd ("x3");
+      Sample_cmd ("x3'");
+      Sample_cmd ("x4");
+      
+      F_cmd("f1", ("x3", 2));
+      F_cmd("f2'", ("x3'", 2));
+      XOR_cmd("x2", ["x4"; "f1"]);
+      XOR_cmd("x2'", ["x4"; "f2'"]);
+
+      F_cmd("f3", ("x2", 1));
+      F_cmd("f4", ("x2'", 1));
+      XOR_cmd("x1", ["x3"; "f3"]);
+      XOR_cmd("x1'", ["x3'"; "f4"]);
+      XOR_cmd("x1''", ["x3'"; "f3"]);
+      XOR_cmd("x1'''", ["x3"; "f4"]);
+
+      F_cmd("f5", ("x1", 0));
+      F_cmd("f6", ("x1'", 0));
+      F_cmd("f7", ("x1''", 0));
+      F_cmd("f8", ("x1'''", 0));
+      XOR_cmd("x0", ["x2"; "f5"]);
+      XOR_cmd("x0'", ["x2'"; "f6"]);
+      XOR_cmd("x0''", ["x2"; "f7"]);
+      XOR_cmd("x0'''", ["x2"; "f8"]);      
+      
+      
+      R_cmd(["x6";"x5"], feistel_cipher, ["x0";"x1"]);
+      R_cmd(["x6'";"x5'"], feistel_cipher, ["x0'";"x1'"]);
+      R_cmd(["x6''";"x5''"], feistel_cipher, ["x0''";"x1''"]);
+      R_cmd(["x6'''";"x5'''"], feistel_cipher, ["x0'''";"x1'''"]);
+
+      XOR_cmd("v1", ["x1"; "x1'"; "x1''"; "x1'''"]);
+      XOR_cmd("v2", ["x5"; "x5'"; "x5''"; "x5'''"]);
+      
+      Check("v1", Eq, "0");
+      Check("v2", Eq, "0");
+    ]
   in
+  
   let _ = simulated_world_equations commands in
   let knowledge = simulator_knowledge commands in
   L.iter knowledge ~f:(fun (expr, list) -> F.printf "Knowledge %a -> [%a]\n" pp_expr expr (pp_list ", " pp_expr) list);
