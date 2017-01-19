@@ -12,7 +12,7 @@ R (x0,x1) :=
   v3 = F3(x3);    x4 = x2 + v3;
   v4 = F4(x4);    x5 = x3 + v4;
   v5 = F5(x5);    x6 = x4 + v5;
-  return x6,x6.
+  return x5,x6.
 
 attacker :=
   x3  <-$ S;

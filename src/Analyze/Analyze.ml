@@ -17,7 +17,7 @@ let input_file filename =
   String.concat ~sep:"\n" (L.rev lines)
 
 let print_time t1 t2 =
-  F.printf "\nExecution time: %F seconds\n" (Pervasives.ceil ((10000.0 *. (t2 -. t1))) /. 10000.0)
+  F.printf "\nTime %F seconds\n" (Pervasives.ceil ((10000.0 *. (t2 -. t1))) /. 10000.0)
   
                 
 let analyze_commands cmds =
