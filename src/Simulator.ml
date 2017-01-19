@@ -169,9 +169,6 @@ let rec is_zero_row row =
   | a :: rest -> if a = 0 then is_zero_row rest else false
               
 let solve_system matrix vector =
-  F.printf "aaaaaaaaa %d x %d\n" (L.length matrix) (L.length vector); F.print_flush();
-  F.printf "%a\n" (pp_matrix pp_int) matrix;
-  F.printf "[%a]\n" (pp_list "," pp_expr) vector;
   let reduced, col_pivots, vector = xor_gaussian_elimination matrix vector in
   if (L.exists (L.zip_exn reduced vector)
          ~f:(fun (row,b) -> if (is_zero_row row) && (not (is_zero_expr b)) then true else false)) then
@@ -276,35 +273,19 @@ let simulated_world_equations commands =
               | _ -> l1, (l2 @ [expr])
             )
   in
-  let id_map, _, all_exprs = expressions_to_simulator_terms (equalities @ inequalities) in
-  let exprs = L.slice all_exprs 0 (L.length equalities) in  (* Remove inequalities *)
+  let equalities = L.filter equalities ~f:(fun e -> not (is_zero_expr e)) in
+  (* Filter also inequalities that include xor of random oracle after simplifying... Think about this*)
   
-  L.iter (Map.to_alist id_map) ~f:(fun (i,(e,_)) -> F.printf "a%d -> %a\n" i pp_expr e);
-  L.iter exprs ~f:(fun e -> F.printf "\nt[%a]\n" (pp_list ", " pp_simulator_term) e);
-  F.printf "eqs: [%a]\n" (pp_list "," pp_expr) equalities;
-  F.printf "ineqs: [%a]\n" (pp_list "," pp_expr) inequalities;
-  F.printf "ineqs: [%a]\n" (pp_list "," pp_expr) (L.map inequalities ~f:full_simplify );
+  let id_map, _, all_exprs = expressions_to_simulator_terms (equalities @ inequalities) in
+  let exprs =  (* Remove inequalities *)
+    if L.length equalities = 0 then []
+    else L.slice all_exprs 0 (L.length equalities)
+  in
+  
   let matrix, vector = build_system exprs id_map in
   let solution = solve_system matrix vector in
-  let () = match solution with
-    | None -> F.printf "No solution\n"
-    | Some s ->
-       let all_vars = get_all ~filter:(function | Var _ -> true | _ -> false) all_exprs in
-       let max_i = L.fold_left (get_all ~filter:is_var_expr [s])
-                               ~init:0
-                               ~f:(fun max v -> begin match v with | VAR j -> if j > max then j else max | _ -> assert false end)
-       in
-       let extra_vars = L.map (range 0 ((L.length all_vars) - (L.length s))) ~f:(fun j -> VAR (j+max_i)) in
-       L.iter (L.zip_exn all_vars (s @ extra_vars))
-              ~f:(function
-                  | Var (j,_), e ->
-                     let v, _ = Map.find_exn id_map j in
-                     F.printf "bbb %a = %a\n" pp_expr v pp_expr e
-                  | _ -> assert false
-                 )
-  in
   match solution with
-  | None -> failwith "No solution"
+  | None -> None
   | Some s ->
      let all_vars = get_all ~filter:(function | Var _ -> true | _ -> false) all_exprs in
      let max_i = L.fold_left (get_all ~filter:is_var_expr [s])
@@ -333,9 +314,6 @@ let simulated_world_equations commands =
 
      let knowledge = simulator_knowledge commands in
      
-     F.printf "eoooo [%a]\n" (pp_list ", " pp_expr) s;
-     F.printf "eoooo [%a]\n" (pp_list ", " pp_expr) sol;
-     F.printf "eoooo [%a]\n" (pp_list ", " pp_expr) extra_vars;
      let all_terms_in_precedences, precedences, max_idx = 
        L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
          ~init:([],[],max_i)
@@ -413,25 +391,11 @@ let simulated_world_equations commands =
      in
 
      let matrix = L.zip_exn vars_matrix matrix |> L.map ~f:(fun (row,row') -> row @ row') in
-     
-     F.printf "\n Inequalities:\n";
-     L.iter inequalities ~f:(fun e -> F.printf "%a <> 0\n" pp_expr e);
-     F.printf "End\n";
-     F.printf "\n Inequalities:\n";
-     L.iter new_inequalities ~f:(fun e -> F.printf "%a <> 0\n" pp_expr e);
-     F.printf "End\n";
-
-     F.printf "\n Precedences:\n";     
-     L.iter precedences ~f:(fun (k,e) -> F.printf "%a -> [%a]\n" pp_expr e (pp_list ", " pp_expr) k);
-     F.printf "\n\n[%a]\n" (pp_list ", " pp_expr) all_terms_in_precedences;
-     F.printf "End\n\n\n\n";
-
      let solution = solve_system matrix vector in
      begin match solution with
-     | None -> F.printf "No solution\n"
+     | None -> None
      | Some s ->
         let s = L.map s ~f:(function | VAR j -> VAR (j+max_idx) | a -> a) in
-        F.printf "[%a]\n" (pp_list "\n" pp_expr) s;
         let free_vars_lincomb =
           L.map (range 0 (L.length variables))
                 ~f:(fun i ->
@@ -459,8 +423,7 @@ let simulated_world_equations commands =
               |> L.filter ~f:(fun e -> not (is_zero_expr e))
             )
         in
-        L.iter conjunction ~f:(fun list -> L.iter list ~f:(fun e -> F.printf " %a = 1 \\/" pp_expr e ); F.printf "\n/\\\n");
-        
+       
         let make_disj_poly e =
           L.fold_left (expr_to_xor_list e)
              ~init:Z2P.zero
@@ -478,17 +441,14 @@ let simulated_world_equations commands =
           | None -> false
           | Some _ -> true
         in       
-
         let solved = lazy_find ~f conjunction in
         begin match solved with
-        | None -> F.printf "Nope\n"
+        | None -> None
         | Some s ->
-           F.printf "Yeah!\n";
            let p = L.fold_left s ~init:Z2P.one ~f:(fun p e -> Z2P.(p *! (make_disj_poly e))) in
            match find_zero Z2P.(p +! one) with
            | None -> assert false
            | Some integers ->
-              F.printf "a %d [%a]\n\n" (L.length conjunction) (pp_list ", " pp_int) integers;
               let free_vars =
                 L.map free_vars_lincomb ~f:(fun (v,lincomb) ->
                         let comb = L.fold_left lincomb
@@ -500,13 +460,11 @@ let simulated_world_equations commands =
                                          end                          
                                        )
                         in
-                        F.printf "%a -> %a\n" pp_expr v pp_expr comb;
                         (v, comb)
                       )
               in
-              F.printf "%d \n\n" (L.length (all_vars));
               let simulator_terms =
-                L.map (L.rev (L.zip_exn all_vars (sol @ extra_vars)))
+                L.map (L.zip_exn all_vars (sol @ extra_vars))
                       ~f:(function
                           | Var (j,_), e ->
                              let v, _ = Map.find_exn id_map j in
@@ -520,13 +478,11 @@ let simulated_world_equations commands =
                                                   )
                                       |> full_simplify
                              in
-                             F.printf "%a = %a = %a\n" pp_expr v pp_expr e pp_expr e';
-                             (v,e,e')
+                             (v,e')
                           | _ -> assert false
                          )
               in
-              F.printf "\n\n";
-              ()
+              Some simulator_terms
         end
      end
        

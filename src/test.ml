@@ -1,7 +1,6 @@
 (* Test *)
 
 open Abbrevs
-open Util
 open Expressions
 open Feistel
 open Attacker
@@ -14,35 +13,38 @@ let test_feistel_attack () =
   let x3 = Leaf "x3" in
   let x3' = Leaf "x3'" in
   let x4 = Leaf "x4" in
-  let x2 = XOR(x4, F(x3, 2)) in
-  let x2' = XOR(x4, F(x3', 2)) in
-  let x1 = XOR(x3, F(x2, 1)) in
-  let x1' = XOR(x3', F(x2', 1)) in
-  let x1'' = XOR(x3', F(x2, 1)) in
-  let x1''' = XOR(x3, F(x2', 1)) in
-  let x0 = XOR(x2, F(x1, 0)) in
-  let x0' = XOR(x2', F(x1', 0)) in
-  let x0'' = XOR(x2, F(x1'', 0)) in
-  let x0''' = XOR(x2', F(x1''', 0)) in
+  let x2 = XOR(x4, F(x3, 3)) in
+  let x2' = XOR(x4, F(x3', 3)) in
+  let x1 = XOR(x3, F(x2, 2)) in
+  let x1' = XOR(x3', F(x2', 2)) in
+  let x1'' = XOR(x3', F(x2, 2)) in
+  let x1''' = XOR(x3, F(x2', 2)) in
+  let x0 = XOR(x2, F(x1, 1)) in
+  let x0' = XOR(x2', F(x1', 1)) in
+  let x0'' = XOR(x2, F(x1'', 1)) in
+  let x0''' = XOR(x2', F(x1''', 1)) in
 
   let _, x5 = feistel_enc x0 x1 5 in
   let _, x5' = feistel_enc x0' x1' 5 in
   let _, x5'' = feistel_enc x0'' x1'' 5 in
   let _, x5''' = feistel_enc x0''' x1''' 5 in
-  let xor_x1 = simplify_expr (XOR(x1, XOR(x1', XOR(x1'', x1''')))) in
-  let xor_x5 = simplify_expr (XOR(x5, XOR(x5', XOR(x5'', x5''')))) in
+
+  let xor_x1 = full_simplify (XOR(x1, XOR(x1', XOR(x1'', x1''')))) in
+  let xor_x5 = full_simplify (XOR(x5, XOR(x5', XOR(x5'', x5''')))) in
   F.printf "x1 + x1' + x1'' + x1''' = %a\n" pp_expr xor_x1;
   F.printf "x5 + x5' + x5'' + x5''' = %a\n\n" pp_expr xor_x5;
   ()
 
+let testa = test_feistel_attack
+    
 let test () =
   let feistel_cipher =
     { n_in = 2; n_out = 2;
-      cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 5 in [l; r]);
+      cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 2 in [l; r]);
     }
   in
 
- (* let commands =
+  let commands =
     [
       Sample_cmd ("x1");
       Sample_cmd ("x2");
@@ -50,8 +52,6 @@ let test () =
       F_cmd("v2", ("x1", 1));
       XOR_cmd("x0", ["v2";"x2"]);
       XOR_cmd("x3", ["v1";"x1"]);
- (*     R_cmd(["u";"v"], feistel_cipher, ["x0";"x1"]); (* Remove later this line *)
-      F_cmd("j", ("u",3)); (* Remove later this line *) *)
       F_cmd("v3", ("x3", 3));
       XOR_cmd("x4", ["x2";"v3"]);
       R_cmd(["v5";"v4"], feistel_cipher, ["x0";"x1"]);
@@ -61,34 +61,34 @@ let test () =
       Check("v3", Eq, "0");
       Check("v2", Eq, "0");
     ]
-  in*)
-    
+  in
+  (* 
   let commands =
     [
       Sample_cmd ("x3");
       Sample_cmd ("x3'");
       Sample_cmd ("x4");
       
-      F_cmd("f1", ("x3", 2));
-      F_cmd("f2'", ("x3'", 2));
+      F_cmd("f1", ("x3", 3));
+      F_cmd("f2", ("x3'", 3));
       XOR_cmd("x2", ["x4"; "f1"]);
-      XOR_cmd("x2'", ["x4"; "f2'"]);
+      XOR_cmd("x2'", ["x4"; "f2"]);
 
-      F_cmd("f3", ("x2", 1));
-      F_cmd("f4", ("x2'", 1));
+      F_cmd("f3", ("x2", 2));
+      F_cmd("f4", ("x2'", 2));
       XOR_cmd("x1", ["x3"; "f3"]);
       XOR_cmd("x1'", ["x3'"; "f4"]);
       XOR_cmd("x1''", ["x3'"; "f3"]);
       XOR_cmd("x1'''", ["x3"; "f4"]);
 
-      F_cmd("f5", ("x1", 0));
-      F_cmd("f6", ("x1'", 0));
-      F_cmd("f7", ("x1''", 0));
-      F_cmd("f8", ("x1'''", 0));
+      F_cmd("f5", ("x1", 1));
+      F_cmd("f6", ("x1'", 1));
+      F_cmd("f7", ("x1''", 1));
+      F_cmd("f8", ("x1'''", 1));
       XOR_cmd("x0", ["x2"; "f5"]);
       XOR_cmd("x0'", ["x2'"; "f6"]);
       XOR_cmd("x0''", ["x2"; "f7"]);
-      XOR_cmd("x0'''", ["x2"; "f8"]);      
+      XOR_cmd("x0'''", ["x2'"; "f8"]);      
       
       
       R_cmd(["x6";"x5"], feistel_cipher, ["x0";"x1"]);
@@ -103,38 +103,11 @@ let test () =
       Check("v2", Eq, "0");
     ]
   in
-  
-  let _ = simulated_world_equations commands in
-  let knowledge = simulator_knowledge commands in
-  L.iter knowledge ~f:(fun (expr, list) -> F.printf "Knowledge %a -> [%a]\n" pp_expr expr (pp_list ", " pp_expr) list);
-
-
-  (*let matrix = [[1;1;1;1];[0;1;1;0];[1;1;1;0]] in
-  let vector = [Leaf "a"; Leaf "b"; Leaf "c"] in
-  F.printf "%a\n" (pp_matrix pp_int) matrix;
-  F.printf "[%a]\n" (pp_list "," pp_expr) vector;
-
-  let reduced, col_pivots, vector' = xor_gaussian_elimination matrix vector in
-  F.printf "%a\n" (pp_matrix pp_int) reduced;
-  F.printf "[%a]\n" (pp_list "," pp_int) col_pivots;
-  F.printf "[%a]\n\n\n" (pp_list "," pp_expr) vector';
-
-
-  let solution = solve_system matrix vector in
-  let () = match solution with
-    | None -> F.printf "No solution\n"
-    | Some s ->
-       L.iter s ~f:(function
-                    | Value (e, indices) -> F.printf "%a + [%a]\n" pp_expr e (pp_list " + " pp_int) indices
-                    | Free i -> F.printf "Free %d\n" i
-                   )
-  in
    *)
-
-  F.printf "Test\n\n";
-  let x1 = Leaf "x1" in
-  let x2 = Leaf "x2" in
-  let known = [x1; x2] in
-  let expr = Rand(2, [Rand(1,[x1;x2]); Rand(1,[x1;x1])]) in
-  F.printf "%a -> %b\n\n" pp_expr expr (can_be_generated expr known);  
-  ()
+  let simulated = simulated_world_equations commands in
+  match simulated with
+  | None -> F.printf "The attacker is universal\n"
+  | Some l ->
+     L.iter l ~f:(fun (v,e) -> F.printf "%a = %a\n" pp_expr v pp_expr e);
+     F.printf "There exists a simulator for that attacker\n"
+                 
