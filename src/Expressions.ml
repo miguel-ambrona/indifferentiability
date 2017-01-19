@@ -7,22 +7,30 @@ open Util
 (* ** Expressions *)
 
 type expression =
-  | F    of expression * int
+  | F    of expression * int * (string option)
   | XOR  of expression * expression
   | Leaf of string
   | Zero
-  | Rand of int * (expression list)
+  | Rand of int * (expression list) * (string option)
   | VAR  of int (* Variable, non-determined expression *)
 
 
 (* ** Pretty printing *)
 
 let rec string_of_expr = function
-  | F(expr, i)  -> "F" ^ (string_of_int i) ^ "(" ^ (string_of_expr expr) ^ ")"
+  | F(expr, i, fname)  ->
+     begin match fname with
+     | None -> "F" ^ (string_of_int i) ^ "(" ^ (string_of_expr expr) ^ ")"
+     | Some name -> name ^ "(" ^ (string_of_expr expr) ^ ")"
+     end
   | XOR(e1, e2) -> (string_of_expr e1) ^ " + " ^  (string_of_expr e2)
   | Leaf(s)     -> s
   | Zero        -> "0"
-  | Rand (i, l) -> "R" ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
+  | Rand (i, l, oname) ->
+     begin match oname with
+     | None -> "R" ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
+     | Some name -> name ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
+     end
   | VAR (i)     -> "Var_" ^ (string_of_int i)
 
 let pp_expr _fmt expr =
@@ -33,18 +41,18 @@ let pp_expr _fmt expr =
 
 let rec compare_expr e1 e2 =
   match e1, e2 with
-  | Rand (i1,l1), Rand (i2,l2) ->
+  | Rand (i1,l1,_), Rand (i2,l2,_) ->
      let c = Int.compare i1 i2 in
      if c = 0 then compare_lists ~compare:compare_expr l1 l2
      else c
-  | Rand(_,_), _ -> -1
-  | _, Rand(_,_) -> +1
-  | F(e1',i1), F(e2',i2) ->
+  | Rand(_,_,_), _ -> -1
+  | _, Rand(_,_,_) -> +1
+  | F(e1',i1,_), F(e2',i2,_) ->
      let c = Int.compare i1 i2 in
      if c = 0 then compare_expr e1' e2'
      else c
-  | F(_,_), _ -> -1
-  | _, F(_,_) -> +1
+  | F(_,_,_), _ -> -1
+  | _, F(_,_,_) -> +1
   | XOR(e1',e1''), XOR(e2',e2'') ->
      let c = compare_expr e1' e2' in
      if c = 0 then compare_expr e1'' e2''
@@ -92,8 +100,8 @@ let rec simplify_expr expr =
   | [] -> Zero
   | a :: [] ->
      begin match a with
-     | F(e1,i)    -> F(simplify_expr e1, i)
-     | Rand (i,l) -> Rand(i, L.map l ~f:simplify_expr )
+     | F(e1,i,fname)    -> F(simplify_expr e1, i,fname)
+     | Rand (i,l,oname) -> Rand(i, L.map l ~f:simplify_expr, oname )
      | _ -> a
      end
   | _ ->
@@ -123,7 +131,7 @@ let rec substitute_expr ~old ~by expression =
   if equal_expr old expression then by
   else
     match expression with
-    | F(expr, i)  -> F(substitute_expr ~old ~by expr, i)
+    | F(expr, i, fname)  -> F(substitute_expr ~old ~by expr, i, fname)
     | XOR(e1, e2) -> XOR(substitute_expr ~old ~by e1, substitute_expr ~old ~by e2)
-    | Rand (i, l) -> Rand(i, L.map l ~f:(fun e -> substitute_expr ~old ~by e))
+    | Rand (i, l, oname) -> Rand(i, L.map l ~f:(fun e -> substitute_expr ~old ~by e), oname)
     | _ as terminal -> terminal

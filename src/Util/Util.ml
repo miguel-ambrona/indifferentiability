@@ -53,6 +53,13 @@ let unzip3 list =
   in
   aux [] [] [] list
 
+let find_position list ~f =
+  let rec aux k = function
+    | [] -> failwith "Not found"
+    | a :: rest -> if f a then k else aux (k+1) rest
+  in
+  aux 0 list
+      
 let rec lazy_find ~f l =
   (* This function takes l, which is a list of lists of the shape:
      [[a1,b1,...z1], ..., [an,bn,...wn]] and for every combination of elements:

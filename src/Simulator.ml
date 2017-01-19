@@ -30,7 +30,7 @@ let expressions_to_simulator_terms expressions =
              ~f:(fun (id_map, id_counter, terms) non_xor_term ->
                let f_search = fun (_,(e,_)) -> equal_expr e non_xor_term in
                begin match non_xor_term with
-               | F(expr, _) ->
+               | F(expr, _, _) ->
                   let id_map, id_counter, _ = aux id_map id_counter [] [expr] in
                   let find_map_index e =
                     let (i,_) = L.find_exn (Map.to_alist id_map) ~f:(fun (_,(e',_)) -> equal_expr e' e) in
@@ -50,7 +50,7 @@ let expressions_to_simulator_terms expressions =
                      let id_map = Map.add id_map ~key:id_counter ~data:(non_xor_term, [[id_counter]]) in
                      (id_map, id_counter+1, terms @ [Const(id_counter, [[id_counter]])])
                   end
-               | Rand(_, exprs) ->
+               | Rand(_, exprs, _) ->
                   let id_map, id_counter, _ = aux id_map id_counter [] exprs in
                   let find_map_index e =
                     let (i,_) = L.find_exn (Map.to_alist id_map) ~f:(fun (_,(e',_)) -> equal_expr e' e) in
@@ -146,7 +146,7 @@ let rec can_be_generated expression known_terms =
 
   let random_oracle_terms =
     L.filter (expr_to_xor_list expression) ~f:is_random_oracle_expr
-    |> L.filter ~f:(function | Rand(_,list) -> not (L.exists list ~f:(fun e -> not (can_be_generated e known_terms)))
+    |> L.filter ~f:(function | Rand(_,list,_) -> not (L.exists list ~f:(fun e -> not (can_be_generated e known_terms)))
                              | _ -> assert false
                    )
   in
@@ -195,10 +195,10 @@ let simulator_knowledge commands =
     | cmd :: rest_cmds ->
        begin match cmd with
        | Sample_cmd name -> aux (Map.add expressions ~key:name ~data:(Leaf name)) known_terms knowledge rest_cmds
-       | F_cmd (name, (var, id)) ->
+       | F_cmd (name, (var, id), fname) ->
           let new_k = Map.find_exn expressions var in
-          let new_known_terms = known_terms @ [new_k] @ [F(new_k, id)] |> L.dedup ~compare:compare_expr in
-          let new_term = F(new_k, id) in
+          let new_known_terms = known_terms @ [new_k] @ [F(new_k, id, fname)] |> L.dedup ~compare:compare_expr in
+          let new_term = F(new_k, id, fname) in
           let new_knowledge =
             begin match L.find knowledge ~f:(fun (expr,_) -> equal_expr expr new_k) with
             | Some _ -> knowledge
@@ -208,10 +208,10 @@ let simulator_knowledge commands =
             end
           in
           aux (Map.add expressions ~key:name ~data:new_term ) new_known_terms new_knowledge rest_cmds
-       | R_cmd (names, _, vars) ->
+       | R_cmd (names, _, vars, oname) ->
           let new_variables =
             let vars = L.map vars ~f:(fun v -> Map.find_exn expressions v) in
-            L.map (range 0 (L.length names)) ~f:(fun i -> Rand (i, vars))
+            L.map (range 0 (L.length names)) ~f:(fun i -> Rand (i, vars, oname))
           in
           let expressions' =
             L.fold_left (L.zip_exn names new_variables)
@@ -325,7 +325,7 @@ let simulated_world_equations commands =
               | Some (_, this_knowledge) ->
                    let random_oracle_terms =
                      L.filter (expr_to_xor_list e) ~f:is_random_oracle_expr
-                     |> L.filter ~f:(function | Rand(_,list) -> not (L.exists list ~f:(fun e' -> not (can_be_generated e' this_knowledge)))
+                     |> L.filter ~f:(function | Rand(_,list,_) -> not (L.exists list ~f:(fun e' -> not (can_be_generated e' this_knowledge)))
                                               | _ -> assert false
                                     )
                    in
