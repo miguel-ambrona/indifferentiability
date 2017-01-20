@@ -419,6 +419,11 @@ let simulated_world_equations commands =
      | None -> None
      | Some s ->
         let s = L.map s ~f:(function | VAR j -> VAR (j+max_idx) | a -> a) in
+        let ineq_variables = L.filter s ~f:(function VAR _ -> true | _ -> false)
+                             |> L.dedup ~compare:compare_expr
+                             |> L.sort ~cmp:compare_expr
+        in
+          
         let free_vars_lincomb =
           L.map (range 0 (L.length variables))
                 ~f:(fun i ->
@@ -436,47 +441,6 @@ let simulated_world_equations commands =
                  F.printf " * %a = %a\n" pp_expr v (pp_list "  +  " pp_string) lincomb_to_print
                );        
 
-        (*
-        let replace_precedence_vars expr =
-          L.fold_left free_vars_lincomb
-              ~init:expr
-              ~f:(fun expr (v,lincomb) ->
-                let e = L.fold_left lincomb ~init:Zero ~f:(fun e (e1,e2) -> if is_zero_expr e1 then e else XOR(e,e2))
-                        |> full_simplify
-                in
-                substitute_expr ~old:v ~by:e expr |> full_simplify
-              )
-        in
-
-        
-        let new_solved_system = L.map solved_system ~f:(fun (v,e) -> let new_e = replace_precedence_vars e in (v,new_e)) in
-        F.printf "\nUpdated solution:\n";
-        L.iter new_solved_system
-               ~f:(function
-                   | Var (j,_), e ->
-                      let v, _ = Map.find_exn id_map j in
-                      F.printf " * %a = %a\n" pp_expr v pp_expr e
-                   | _ -> assert false
-                  );
-        *)
-(*
-        let replace_vars list =
-          L.fold_left (L.rev new_solved_system)
-             ~init:list
-             ~f:(fun updated (v,e) ->
-               begin match v with
-               | Var (j,_) ->
-                  let old, _ = Map.find_exn id_map j in
-                  L.map updated ~f:(substitute_expr ~old ~by:e )
-               | _ -> updated
-               end
-             )
-          |> L.map ~f:full_simplify
-        in
- *)
-        let new_inequalities = (*replace_vars *)new_inequalities in     
-        F.printf "\nUpdated inequalities:\n %a\n\n" (pp_list "\n " pp_ineq) new_inequalities;
-        
         let conjunction =
           L.map new_inequalities
             ~f:(fun ineq ->
@@ -498,7 +462,7 @@ let simulated_world_equations commands =
         in
 
         let pp_disj _fmt e = F.printf "(%a <> 0)" pp_expr e in
-        F.printf "Inequalities system:\n";
+        F.printf "\nInequalities system:\n";
         F.printf "  %a\n\n" (pp_list " /\\\n  " (pp_list " \\/ " pp_disj)) conjunction;
         
         let make_disj_poly e =
@@ -523,13 +487,37 @@ let simulated_world_equations commands =
         begin match solved with
         | None -> None
         | Some s ->
-
-           let new_solved_system = solved_system in
-           
+                  
            let p = L.fold_left s ~init:Z2P.one ~f:(fun p e -> Z2P.(p *! (make_disj_poly e))) in
            match find_zero Z2P.(p +! one) with
            | None -> assert false
            | Some integers ->
+
+              let replace_precedence_vars expr =
+                L.fold_left free_vars_lincomb
+                            ~init:expr
+                            ~f:(fun expr (v,lincomb) ->
+                              let e = L.fold_left lincomb ~init:Zero ~f:(fun e (e1,e2) ->
+                                            begin match e1 with
+                                            | Zero -> e
+                                            | VAR j when not(L.mem integers j) -> e
+                                            | _ -> XOR(e,e2)
+                                            end
+                                                  )
+                                      |> full_simplify
+                              in
+                              substitute_expr ~old:v ~by:e expr |> full_simplify
+                            )
+              in
+           
+              let new_solved_system = L.map solved_system ~f:(fun (v,e) -> let new_e = replace_precedence_vars e in (v,new_e)) in
+              
+              F.printf "Solution:\n";
+              let zeros = L.filter ineq_variables ~f:(function | VAR i when L.mem integers i -> false | _ -> true) in
+              let ones = L.filter ineq_variables ~f:(function | VAR i when L.mem integers i -> true | _ -> false) in
+              (if (L.length zeros) > 0 then F.printf "  %a = 0\n" (pp_list " = " pp_expr) zeros else ());
+              (if (L.length ones) > 0 then F.printf "  %a = 1\n" (pp_list " = " pp_expr) ones else ());
+              F.printf "\n\n";
               let free_vars =
                 L.map free_vars_lincomb ~f:(fun (v,lincomb) ->
                         let comb = L.fold_left lincomb
