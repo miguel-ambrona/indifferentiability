@@ -296,7 +296,7 @@ let simulated_world_equations commands =
      let max_i = max_i + ((L.length all_vars) - (L.length s)) in
 
      let replace_vars list =
-       L.fold_left (L.zip_exn all_vars (s @ extra_vars))
+       L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
          ~init:list
          ~f:(fun updated (v,e) ->
            begin match v with
@@ -309,15 +309,32 @@ let simulated_world_equations commands =
        |> L.map ~f:full_simplify
      in
      let new_inequalities = replace_vars inequalities in
-     let sol = s in
-     let s = replace_vars s in
+
+     let pp_eq _fmt e = F.printf "%a = 0" pp_expr e in
+     let pp_ineq _fmt e = F.printf "%a <> 0" pp_expr e in
+     
+     F.printf "Equalities:\n %a\n\n" (pp_list "\n " pp_eq) equalities;
+     F.printf "Inequalities:\n %a\n\n" (pp_list "\n " pp_ineq) inequalities;
+
+     F.printf "Solved system:\n";
+     let solved_system = L.zip_exn all_vars (s @ extra_vars) in
+     L.iter solved_system
+             ~f:(function
+                 | Var (j,_), e ->
+                    let v, _ = Map.find_exn id_map j in
+                    F.printf " * %a = %a\n" pp_expr v pp_expr e
+                 | _ -> assert false
+                );
 
      let knowledge = simulator_knowledge commands in
+
+     let max_idx = max_i + (max_i) + 1 in
+     let precedence_rand_vars = L.map (range (max_i+1) max_idx) ~f:(fun i -> VAR i) in
      
-     let all_terms_in_precedences, precedences, max_idx = 
-       L.fold_left (L.rev (L.zip_exn all_vars (s @ extra_vars)))
-         ~init:([],[],max_i)
-         ~f:(fun (accum_knowledge, equations, var_index) (v,e) ->
+     let all_terms_in_precedences, precedences = 
+       L.fold_left (L.rev solved_system)
+         ~init:([],[])
+         ~f:(fun (accum_knowledge, equations) (v,e) ->
            begin match v with
            | Var (j,_) ->
               let this_var, _ = Map.find_exn id_map j in
@@ -330,11 +347,10 @@ let simulated_world_equations commands =
                                     )
                    in
                    let this_knowledge = (L.map this_knowledge ~f:expr_to_xor_list |> L.concat |> L.dedup ~compare:compare_expr) @
-                                          random_oracle_terms @ [VAR var_index] in
+                                          random_oracle_terms @ precedence_rand_vars in
                    (accum_knowledge @ this_knowledge @ (L.filter (expr_to_xor_list e) ~f:(fun a-> not(is_var_expr a)))
                     |> L.dedup ~compare:compare_expr,
-                    equations @ [(this_knowledge, e)],
-                    var_index + 1
+                    equations @ [(this_knowledge, e)]
                    )
               | None -> assert false
               end
@@ -344,6 +360,13 @@ let simulated_world_equations commands =
      in
 
      let precedences = L.map precedences ~f:(fun (l,e) -> (replace_vars l, L.hd_exn (replace_vars [e]))) in
+
+     F.printf "\nUpdated inequalities:\n %a\n\n" (pp_list "\n " pp_ineq) new_inequalities;
+     
+     F.printf "Precedences:\n";     
+     L.iter (L.rev precedences) ~f:(fun (k,e) -> F.printf " * %a -> [%a]\n" pp_expr e (pp_list ", " pp_expr) k);
+     
+(*     F.printf "All:\n%a <> 0\n\n" (pp_list "\n" pp_expr) all_terms_in_precedences; *)
      
      (* Build the system *)
      let variables =
@@ -404,6 +427,56 @@ let simulated_world_equations commands =
                   (L.nth_exn variables i, lincomb)
                 )
         in
+                                        
+        F.printf "\nSolved precedences:\n";
+        L.iter free_vars_lincomb ~f:(fun (v, lincomb) ->
+                 let lincomb_to_print = L.map lincomb
+                      ~f:(fun (e1,e2) -> if is_zero_expr e1 then [] else [(string_of_expr e1) ^ " * " ^ (string_of_expr e2)]) |> L.concat
+                 in
+                 F.printf " * %a = %a\n" pp_expr v (pp_list "  +  " pp_string) lincomb_to_print
+               );        
+
+        (*
+        let replace_precedence_vars expr =
+          L.fold_left free_vars_lincomb
+              ~init:expr
+              ~f:(fun expr (v,lincomb) ->
+                let e = L.fold_left lincomb ~init:Zero ~f:(fun e (e1,e2) -> if is_zero_expr e1 then e else XOR(e,e2))
+                        |> full_simplify
+                in
+                substitute_expr ~old:v ~by:e expr |> full_simplify
+              )
+        in
+
+        
+        let new_solved_system = L.map solved_system ~f:(fun (v,e) -> let new_e = replace_precedence_vars e in (v,new_e)) in
+        F.printf "\nUpdated solution:\n";
+        L.iter new_solved_system
+               ~f:(function
+                   | Var (j,_), e ->
+                      let v, _ = Map.find_exn id_map j in
+                      F.printf " * %a = %a\n" pp_expr v pp_expr e
+                   | _ -> assert false
+                  );
+        *)
+(*
+        let replace_vars list =
+          L.fold_left (L.rev new_solved_system)
+             ~init:list
+             ~f:(fun updated (v,e) ->
+               begin match v with
+               | Var (j,_) ->
+                  let old, _ = Map.find_exn id_map j in
+                  L.map updated ~f:(substitute_expr ~old ~by:e )
+               | _ -> updated
+               end
+             )
+          |> L.map ~f:full_simplify
+        in
+ *)
+        let new_inequalities = (*replace_vars *)new_inequalities in     
+        F.printf "\nUpdated inequalities:\n %a\n\n" (pp_list "\n " pp_ineq) new_inequalities;
+        
         let conjunction =
           L.map new_inequalities
             ~f:(fun ineq ->
@@ -423,7 +496,11 @@ let simulated_world_equations commands =
               |> L.filter ~f:(fun e -> not (is_zero_expr e))
             )
         in
-       
+
+        let pp_disj _fmt e = F.printf "(%a <> 0)" pp_expr e in
+        F.printf "Inequalities system:\n";
+        F.printf "  %a\n\n" (pp_list " /\\\n  " (pp_list " \\/ " pp_disj)) conjunction;
+        
         let make_disj_poly e =
           L.fold_left (expr_to_xor_list e)
              ~init:Z2P.zero
@@ -440,11 +517,15 @@ let simulated_world_equations commands =
           match find_zero Z2P.(p +! one) with
           | None -> false
           | Some _ -> true
-        in       
-        let solved = lazy_find ~f conjunction in
+        in
+        
+        let solved = if L.length conjunction = 0 then Some [] else lazy_find ~f conjunction in
         begin match solved with
         | None -> None
         | Some s ->
+
+           let new_solved_system = solved_system in
+           
            let p = L.fold_left s ~init:Z2P.one ~f:(fun p e -> Z2P.(p *! (make_disj_poly e))) in
            match find_zero Z2P.(p +! one) with
            | None -> assert false
@@ -452,30 +533,30 @@ let simulated_world_equations commands =
               let free_vars =
                 L.map free_vars_lincomb ~f:(fun (v,lincomb) ->
                         let comb = L.fold_left lincomb
-                                       ~init:Zero
-                                       ~f:(fun comb (var,e) ->
-                                         begin match var with
-                                         | VAR i when L.mem integers i -> full_simplify (XOR(comb, e))
-                                         | _ -> comb
-                                         end                          
-                                       )
+                               ~init:Zero
+                               ~f:(fun comb (var,e) ->
+                                 begin match var with
+                                 | VAR i when L.mem integers i -> full_simplify (XOR(comb, e))
+                                 | _ -> comb
+                                 end                          
+                               )
                         in
                         (v, comb)
                       )
               in
               let simulator_terms =
-                L.map (L.zip_exn all_vars (sol @ extra_vars))
+                L.map new_solved_system
                       ~f:(function
                           | Var (j,_), e ->
                              let v, _ = Map.find_exn id_map j in
                              let e' = L.fold_left (expr_to_xor_list e)
-                                                  ~init:Zero
-                                                  ~f:(fun e' t ->
-                                                    begin match L.find free_vars ~f:(fun (v,_) -> equal_expr v t) with
-                                                    | None -> XOR(e',t)
-                                                    | Some (_,comb) -> XOR(e',comb)
-                                                    end
-                                                  )
+                                         ~init:Zero
+                                         ~f:(fun e' t ->
+                                           begin match L.find free_vars ~f:(fun (v,_) -> equal_expr v t) with
+                                           | None -> XOR(e',t)
+                                           | Some (_,comb) -> XOR(e',comb)
+                                           end
+                                         )
                                       |> full_simplify
                              in
                              (v,e')

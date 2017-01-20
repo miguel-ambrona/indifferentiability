@@ -17,7 +17,7 @@ let input_file filename =
   String.concat ~sep:"\n" (L.rev lines)
 
 let print_time t1 t2 =
-  F.printf "\nTime %F seconds\n" (Pervasives.ceil ((10000.0 *. (t2 -. t1))) /. 10000.0)
+  F.printf "\nTime: %F seconds\n" (Pervasives.ceil ((10000.0 *. (t2 -. t1))) /. 10000.0)
   
                 
 let analyze_commands cmds =
@@ -30,7 +30,7 @@ let analyze_commands cmds =
             print_time t1 t2;
   | Some l ->
      F.printf "There exists a simulator for the attacker:\n\n";
-     L.iter (L.rev l) ~f:(fun (v,e) -> F.printf "%a = %a\n" pp_expr v pp_expr e);
+     L.iter l ~f:(fun (v,e) -> F.printf "%a = %a\n" pp_expr v pp_expr e);
      print_time t1 t2;
   );
   exit 0

@@ -17,6 +17,7 @@ let list_repeat a n =
   aux [] 0
 
 let pp_int _ i = F.printf "%d" i
+let pp_string _ s = F.printf "%s" s
 
 let string_of_list sep string_of_a list =
   let rec aux output = function
