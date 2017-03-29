@@ -13,16 +13,16 @@ let test_feistel_attack () =
   let x3 = Leaf "x3" in
   let x3' = Leaf "x3'" in
   let x4 = Leaf "x4" in
-  let x2 = XOR(x4, F(x3, 3)) in
-  let x2' = XOR(x4, F(x3', 3)) in
-  let x1 = XOR(x3, F(x2, 2)) in
-  let x1' = XOR(x3', F(x2', 2)) in
-  let x1'' = XOR(x3', F(x2, 2)) in
-  let x1''' = XOR(x3, F(x2', 2)) in
-  let x0 = XOR(x2, F(x1, 1)) in
-  let x0' = XOR(x2', F(x1', 1)) in
-  let x0'' = XOR(x2, F(x1'', 1)) in
-  let x0''' = XOR(x2', F(x1''', 1)) in
+  let x2 = XOR(x4, F(x3, 3,Some "F")) in
+  let x2' = XOR(x4, F(x3', 3,Some "F")) in
+  let x1 = XOR(x3, F(x2, 2,Some "F")) in
+  let x1' = XOR(x3', F(x2', 2,Some "F")) in
+  let x1'' = XOR(x3', F(x2, 2,Some "F")) in
+  let x1''' = XOR(x3, F(x2', 2,Some "F")) in
+  let x0 = XOR(x2, F(x1, 1,Some "F")) in
+  let x0' = XOR(x2', F(x1', 1,Some "F")) in
+  let x0'' = XOR(x2, F(x1'', 1,Some "F")) in
+  let x0''' = XOR(x2', F(x1''', 1,Some "F")) in
 
   let _, x5 = feistel_enc x0 x1 5 in
   let _, x5' = feistel_enc x0' x1' 5 in
@@ -36,8 +36,36 @@ let test_feistel_attack () =
   ()
 
 let testa = test_feistel_attack
+
+open Search
+
+let test () = Solver.test ()
+       
+let testaa () =
+  
+  let x1 = Leaf "a" in
+  let x2 = Leaf "b" in
+  let x3 = Leaf "c" in
+  let x4 = Leaf "d" in
+  
+  
+  let _, x5 = feistel_enc x1 x2 3 in
+  let _, x5' = feistel_enc x3 x4 3 in
+
+  let xor_x1 = full_simplify (XOR(x2, x4)) in
+  let xor_x5 = full_simplify (XOR(x5, x5')) in
+  F.printf "x1 + x1' + x1'' + x1''' = %a\n" pp_expr xor_x1;
+  F.printf "x5 + x5' + x5'' + x5''' = %a\n\n" pp_expr xor_x5;
+  
+  let atoms = L.map ["x1"; "x2"; "x3"; "x4"; "x5"] ~f:(fun a -> Leaf a) in
+  let shapes = generate_shape [2] 3 atoms in
+  F.printf "%d\n" (L.length shapes);
+  L.iter shapes ~f:(fun s -> F.printf "%a\n" pp_expr s);
+  ()
+
+let _ = test ()
     
-let test () =
+let testb () =
   let feistel_cipher =
     { n_in = 2; n_out = 2;
       cipher = (fun inputs -> let l, r = feistel_enc (L.nth_exn inputs 0) (L.nth_exn inputs 1) 2 in [l; r]);
@@ -48,13 +76,13 @@ let test () =
     [
       Sample_cmd ("x1");
       Sample_cmd ("x2");
-      F_cmd("v1", ("x2", 2));
-      F_cmd("v2", ("x1", 1));
+      F_cmd("v1", ("x2", 2), Some "F");
+      F_cmd("v2", ("x1", 1),  Some "F");
       XOR_cmd("x0", ["v2";"x2"]);
       XOR_cmd("x3", ["v1";"x1"]);
-      F_cmd("v3", ("x3", 3));
+      F_cmd("v3", ("x3", 3), Some "F");
       XOR_cmd("x4", ["x2";"v3"]);
-      R_cmd(["v5";"v4"], feistel_cipher, ["x0";"x1"]);
+      R_cmd(["v5";"v4"], feistel_cipher, ["x0";"x1"], Some "R");
       Check("v1", Eq, "v2");
       Check("v4", Eq, "x4");
       Check("v4", Eq, "0");
@@ -110,4 +138,5 @@ let test () =
   | Some l ->
      L.iter l ~f:(fun (v,e) -> F.printf "%a = %a\n" pp_expr v pp_expr e);
      F.printf "There exists a simulator for that attacker\n"
-                 
+
+

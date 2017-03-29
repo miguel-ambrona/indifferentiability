@@ -3,15 +3,22 @@ COREFLAGS=-pkg core_kernel \
     -tag short_paths \
     -cflags -strict-sequence
 
-.PHONY: install main.native
+.PHONY: install main.native test.native
 
-all: main.native
+all: main.native test
 
 main.native:
 	ocamlbuild $(COREFLAGS) $(OCAMLBUILDFLAGS) ./main.native
 
 OCAMLDEP= ocamlfind ocamldep -package core_kernel \
             -I src one-line
+
+test:
+	ocamlbuild $(COREFLAGS) $(OCAMLBUILDFLAGS) ./test.native
+
+OCAMLDEP= ocamlfind ocamldep -package core_kernel \
+            -I src one-line
+
 
 dev:
 	ocamlbuild $(COREFLAGS) $(OCAMLBUILDFLAGS) Parser.cmx

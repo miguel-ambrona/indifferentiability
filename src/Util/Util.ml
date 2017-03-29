@@ -84,5 +84,31 @@ let rec lazy_find ~f l =
        end
   in
   aux l
-       
-  
+
+let all_element_and_rest l =
+  let n = L.length l in
+  let rec aux k output = function
+    | [] -> []
+    | a :: rest ->
+       if k = n then output
+       else aux (k+1) ((a,rest) :: output) (rest @ [a])
+  in
+  aux 0 [] l
+      
+let rec split_in_all_pairs = function
+  | [] -> []
+  | _ :: [] -> failwith "the list has an odd number of elements"
+  | a :: b :: [] -> [[(a,b)]]
+  | a :: rest ->
+     let all_second = all_element_and_rest rest in
+     L.map all_second ~f:(fun (b,restb) -> L.map (split_in_all_pairs restb) ~f:(fun pairs_l -> (a,b) :: pairs_l) )
+     |> L.concat
+
+let exists_duplicate ~equal list =
+  let rec aux = function
+    | [] -> false
+    | a :: rest ->
+       if L.mem rest a ~equal then true
+       else aux rest
+  in
+  aux list

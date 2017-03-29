@@ -6,7 +6,7 @@ open Expressions
 (* ** Feistel functions *)
 
 let feistel_round left right i =
-  right, XOR(left, F(right, i+1))
+  right, XOR(left, F(right, i+1,Some "F"))
 
 let feistel_enc left right rounds =
   let rec aux l r k =

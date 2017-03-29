@@ -21,7 +21,7 @@ let rec string_of_expr = function
   | F(expr, i, fname)  ->
      begin match fname with
      | None -> "F" ^ (string_of_int i) ^ "(" ^ (string_of_expr expr) ^ ")"
-     | Some name -> name ^ "(" ^ (string_of_expr expr) ^ ")"
+     | Some name -> name ^ (string_of_int i) ^ "(" ^ (string_of_expr expr) ^ ")"
      end
   | XOR(e1, e2) -> (string_of_expr e1) ^ " + " ^  (string_of_expr e2)
   | Leaf(s)     -> s
@@ -29,7 +29,7 @@ let rec string_of_expr = function
   | Rand (i, l, oname) ->
      begin match oname with
      | None -> "R" ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
-     | Some name -> name ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
+     | Some name -> name ^ (string_of_int i) ^ "(" ^ (string_of_list "," string_of_expr l) ^ ")"
      end
   | VAR (i)     -> "Var_" ^ (string_of_int i)
 
@@ -132,6 +132,6 @@ let rec substitute_expr ~old ~by expression =
   else
     match expression with
     | F(expr, i, fname)  -> F(substitute_expr ~old ~by expr, i, fname)
-    | XOR(e1, e2) -> XOR(substitute_expr ~old ~by e1, substitute_expr ~old ~by e2)
+    | XOR(e1, e2) -> XOR(substitute_expr ~old ~by e1, substitute_expr ~old ~by e2) |> full_simplify
     | Rand (i, l, oname) -> Rand(i, L.map l ~f:(fun e -> substitute_expr ~old ~by e), oname)
     | _ as terminal -> terminal

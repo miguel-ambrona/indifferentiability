@@ -281,6 +281,9 @@ let simulated_world_equations commands =
     if L.length equalities = 0 then []
     else L.slice all_exprs 0 (L.length equalities)
   in
+
+  let pp_eq _fmt e = F.printf "%a = 0" pp_expr e in
+  F.printf "Equalities:\n %a\n\n" (pp_list "\n " pp_eq) equalities;
   
   let matrix, vector = build_system exprs id_map in
   let solution = solve_system matrix vector in
@@ -310,10 +313,7 @@ let simulated_world_equations commands =
      in
      let new_inequalities = replace_vars inequalities in
 
-     let pp_eq _fmt e = F.printf "%a = 0" pp_expr e in
      let pp_ineq _fmt e = F.printf "%a <> 0" pp_expr e in
-     
-     F.printf "Equalities:\n %a\n\n" (pp_list "\n " pp_eq) equalities;
      F.printf "Inequalities:\n %a\n\n" (pp_list "\n " pp_ineq) inequalities;
 
      F.printf "Solved system:\n";
@@ -418,12 +418,7 @@ let simulated_world_equations commands =
      begin match solution with
      | None -> None
      | Some s ->
-        let s = L.map s ~f:(function | VAR j -> VAR (j+max_idx) | a -> a) in
-        let ineq_variables = L.filter s ~f:(function VAR _ -> true | _ -> false)
-                             |> L.dedup ~compare:compare_expr
-                             |> L.sort ~cmp:compare_expr
-        in
-          
+        let s = L.map s ~f:(function | VAR j -> VAR (j+max_idx) | a -> a) in          
         let free_vars_lincomb =
           L.map (range 0 (L.length variables))
                 ~f:(fun i ->
@@ -432,11 +427,10 @@ let simulated_world_equations commands =
                   (L.nth_exn variables i, lincomb)
                 )
         in
-                                        
         F.printf "\nSolved precedences:\n";
         L.iter free_vars_lincomb ~f:(fun (v, lincomb) ->
                  let lincomb_to_print = L.map lincomb
-                      ~f:(fun (e1,e2) -> if is_zero_expr e1 then [] else [(string_of_expr e1) ^ " * " ^ (string_of_expr e2)]) |> L.concat
+                      ~f:(fun (e1,e2) -> if is_zero_expr e1 then [] else ["(" ^ (string_of_expr e1) ^ ") * " ^ (string_of_expr e2) ]) |> L.concat
                  in
                  F.printf " * %a = %a\n" pp_expr v (pp_list "  +  " pp_string) lincomb_to_print
                );        
@@ -511,7 +505,16 @@ let simulated_world_equations commands =
               in
            
               let new_solved_system = L.map solved_system ~f:(fun (v,e) -> let new_e = replace_precedence_vars e in (v,new_e)) in
-              
+              let ineq_variables =
+                L.map free_vars_lincomb ~f:(fun (_,lincomb) ->
+                        L.filter (L.concat (L.map lincomb ~f:(fun (e1,_e2) -> expr_to_xor_list e1)))
+                                 ~f:(function | VAR _ -> true | _ -> false)
+                      )
+                |> L.concat
+                |> L.filter ~f:(function VAR _ -> true | _ -> false)
+                |> L.dedup ~compare:compare_expr
+                |> L.sort ~cmp:compare_expr
+              in
               F.printf "Solution:\n";
               let zeros = L.filter ineq_variables ~f:(function | VAR i when L.mem integers i -> false | _ -> true) in
               let ones = L.filter ineq_variables ~f:(function | VAR i when L.mem integers i -> true | _ -> false) in
@@ -523,10 +526,20 @@ let simulated_world_equations commands =
                         let comb = L.fold_left lincomb
                                ~init:Zero
                                ~f:(fun comb (var,e) ->
-                                 begin match var with
-                                 | VAR i when L.mem integers i -> full_simplify (XOR(comb, e))
-                                 | _ -> comb
-                                 end                          
+                                 let e_coeff =
+                                   L.fold_left (expr_to_xor_list var)
+                                      ~init:0
+                                      ~f:(fun coeff xor_term ->
+                                        begin match xor_term with
+                                        | VAR i -> if L.mem integers i then 1-coeff else coeff
+                                        | Leaf s when s = "1" -> 1-coeff
+                                        | Zero -> coeff
+                                        | _ -> assert false
+                                        end
+                                      )
+                                 in
+                                 if e_coeff = 1 then(* let() = F.printf "hola %a %a\n" pp_expr var pp_expr e in *)full_simplify (XOR(comb, e))
+                                   else (*let () =  F.printf "nope %a %a\n" pp_expr var pp_expr e in*) comb
                                )
                         in
                         (v, comb)
